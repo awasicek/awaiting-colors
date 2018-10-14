@@ -6,31 +6,68 @@ import {computed, observable} from "mobx";
 import * as mobx from "mobx";
 import {observer} from "mobx-react";
 
+const NUM_COLOR_ITEMS = 20;
+const RESPONSE_TIME_MIN = 1; // in seconds
+const RESPONSE_TIME_MAX = 10; // in seconds
+
 const colorState = {
     state: {
         EMPTY: 0,
         WAITING: 1,
         MULTIPLE_WAITING: 2,
         RECEIVED: 3,
-        MULTIPLE_RECEIVED: 4
+        MULTIPLE_RECEIVED: 4,
+        REJECTED: 5
     },
     text: {
         EMPTY: '',
         WAITING: 'waiting',
         MULTIPLE_WAITING: 'more than one waiting',
         RECEIVED: 'received',
-        MULTIPLE_RECEIVED: 'more than one received',
+        MULTIPLE_RECEIVED: 'received++',
+        REJECTED: 'rejected'
     },
     class : {
         EMPTY: 'empty',
         WAITING: 'waiting',
         MULTIPLE_WAITING: 'multipleWaiting',
         RECEIVED: 'received',
-        MULTIPLE_RECEIVED: 'multipleReceived'
+        MULTIPLE_RECEIVED: 'multipleReceived',
+        REJECTED: 'rejected'
     }
 }
 
-function App(props) {
+
+
+class ColorContainer extends React.Component {
+
+    render() {
+
+        let colorItemNums = [];
+        for(let i = 0; i < NUM_COLOR_ITEMS; i++) {
+            colorItemNums.push(i);
+        }
+        const colorItems = colorItemNums.map(function(i) {
+            return(
+                <ColorItem
+                    itemNumber={i}
+                    key={i}
+                />
+            );
+        });
+
+        return (
+            <div
+                className="colorContainer"
+            >
+                {colorItems}
+                <Control />
+            </div>
+        );
+    }
+} // end class ColorContainer
+
+function App() {
     return(
         <div
             className="app"
@@ -41,36 +78,11 @@ function App(props) {
     );
 }
 
-class ColorContainer extends React.Component {
-
-    renderColorItem(uid) {
-        return(
-            <ColorItem
-                itemNumber={uid}
-            />
-        );
-    }
-
-    render() {
-        return (
-            <div
-                className="colorContainer"
-            >
-                {this.renderColorItem(1)}
-                {this.renderColorItem(2)}
-                {this.renderColorItem(3)}
-                <Control />
-            </div>
-        );
-    }
-} // end class ColorContainer
-
 @observer
 class ColorItem extends React.Component {
     constructor(props) {
         super(props);
         this.state = {
-            itemClass : this.props.itemClass,
             itemNumber : this.props.itemNumber
         }
     }
@@ -78,7 +90,7 @@ class ColorItem extends React.Component {
     render() {
         return(
             <div
-                className={this.state.itemClass + ' colorItem' + ' ' + colorStore[('colorItem' + this.state.itemNumber)].class}
+                className={'colorItem' + ' ' + colorStore[('colorItem' + this.state.itemNumber)].class}
                 id={'color_item_' + this.state.itemNumber}
             >
                 {colorStore[('colorItem' + this.state.itemNumber)].text}
@@ -87,15 +99,30 @@ class ColorItem extends React.Component {
     }
 } // end class ColorItem
 
+@observer
 class Control extends React.Component {
-    constructor(props) {
-        super(props);
-    }
 
     controlProgram() {
-        for(let i = 0; i < 20; i++) {
-            getColors();
+
+
+        if(colorStore.controlButton.isStart) {
+            for(let i = 0; i < 30; i++) {
+                getColors().catch(err => {
+                    console.error(err.error);
+                    applyReject(err.num);
+                    return err;
+                });
+            }
+            // set to button to "Clear" for next click because we just started
+            colorStore.controlButton.text = 'Clear';
+        } else {
+            applyEmptyAll();
+            // set to button to "Start" for next click because we just cleared
+            colorStore.controlButton.text = 'Start';
         }
+
+        colorStore.controlButton.isStart = !colorStore.controlButton.isStart;
+        // TODO fire off several batches of get colors, syncopated
     }
 
     render() {
@@ -104,7 +131,7 @@ class Control extends React.Component {
                 className="controlButton"
                 onClick={this.controlProgram}
             >
-                {colorStore.controlButton}
+                {colorStore.controlButton.text}
             </div>
         );
     }
@@ -112,7 +139,7 @@ class Control extends React.Component {
 
 async function getColors() {
     let promise = new Promise((resolve, reject) => {
-        let randomColor = Math.floor(Math.random() * 3 + 1);
+        let randomColor = Math.floor(Math.random() * NUM_COLOR_ITEMS);
         applyWaiting(randomColor);
         resolve(colorEndPoint(randomColor));
     });
@@ -120,8 +147,16 @@ async function getColors() {
     applyResponse(result);
 }
 
+function applyEmptyAll() {
+    for(let i = 0; i < NUM_COLOR_ITEMS; i++) {
+        colorStore[('colorItem' + i)].text = colorState.text.EMPTY;
+        colorStore[('colorItem' + i)].state = colorState.state.EMPTY;
+        colorStore[('colorItem' + i)].class = colorState.class.EMPTY;
+    }
+}
+
 function applyResponse(responseNumber) {
-    //console.log(responseNumber);
+    console.log("response num: " + responseNumber);
     if(colorStore[('colorItem' + responseNumber)].state === colorState.state.RECEIVED) {
         colorStore[('colorItem' + responseNumber)].text = colorState.text.MULTIPLE_RECEIVED;
         colorStore[('colorItem' + responseNumber)].state = colorState.state.MULTIPLE_RECEIVED;
@@ -136,40 +171,52 @@ function applyResponse(responseNumber) {
 }
 
 function applyWaiting(waitingNumber) {
-    console.log(waitingNumber);
+    console.log("waiting num: " + waitingNumber);
+    // TODO multiple waiting
     colorStore[('colorItem' + waitingNumber)].text = colorState.text.WAITING;
     colorStore[('colorItem' + waitingNumber)].state = colorState.state.WAITING;
     colorStore[('colorItem' + waitingNumber)].class = colorState.class.WAITING;
 }
 
+function applyReject(rejectNumber) {
+    console.log("reject num: " + rejectNumber);
+    colorStore[('colorItem' + rejectNumber)].text = colorState.text.REJECTED;
+    colorStore[('colorItem' + rejectNumber)].state = colorState.state.REJECTED;
+    colorStore[('colorItem' + rejectNumber)].class = colorState.class.REJECTED;
+}
+
 async function colorEndPoint(colorNumber) {
-    let responseTime = (Math.random() * 10 + 1) * 1000; // between 1 and 10 seconds, inclusive (in milliseconds)
-    //console.log('response time (seconds): ' + responseTime/1000);
-    //setTimeout(function, milliseconds)
+    let responseTime = (Math.random() * RESPONSE_TIME_MAX + RESPONSE_TIME_MIN) * 1000; // between min and max seconds, inclusive (in milliseconds)
     let color = new Promise((resolve, reject) => {
         setTimeout(() => {
-            //console.log('color response');
-            //let randomColor = Math.floor(Math.random() * 3 + 1);
-            // switch(colorNumber) {
-            //     case 1:
-            //         resolve(1);
-            //         break;
-            //     case 2:
-            //         resolve(2);
-            //         break;
-            //     case 3:
-            //         resolve(3);
-            //         break;
-            //     default:
-            //         resolve('yellow');
-            // }
-            resolve(colorNumber);
+            let rollForError = function (errorRate) {
+                let bIsError = false;
+                const MAX_PERCENTAGE = 100;
+                let roll = Math.floor(Math.random() * MAX_PERCENTAGE);
+                if(roll <= errorRate) {
+                    bIsError = true;
+                }
+                return bIsError;
+            };
+            const ERROR_INCIDENCE = 10; // percent of color items
+            if(rollForError(ERROR_INCIDENCE) > 0) {
+                reject({num: colorNumber, error: 'oops...failed for ' + colorNumber});
+            } else {
+                resolve(colorNumber);
+            }
         }, responseTime);
     });
     return color;
 }
 
 class ColorStore {
+
+    // TODO refactor/DRY these many observable declarations
+
+    @observable colorItem0 = {
+        text: colorState.text.EMPTY,
+        color: colorState.class.EMPTY
+    };
     @observable colorItem1 = {
         text: colorState.text.EMPTY,
         color: colorState.class.EMPTY
@@ -182,7 +229,79 @@ class ColorStore {
         text: colorState.text.EMPTY,
         color: colorState.class.EMPTY
     };
-    @observable controlButton = 'Start';
+    @observable colorItem4 = {
+        text: colorState.text.EMPTY,
+        color: colorState.class.EMPTY
+    };
+    @observable colorItem5 = {
+        text: colorState.text.EMPTY,
+        color: colorState.class.EMPTY
+    };
+    @observable colorItem6 = {
+        text: colorState.text.EMPTY,
+        color: colorState.class.EMPTY
+    };
+    @observable colorItem7 = {
+        text: colorState.text.EMPTY,
+        color: colorState.class.EMPTY
+    };
+    @observable colorItem8 = {
+        text: colorState.text.EMPTY,
+        color: colorState.class.EMPTY
+    };
+    @observable colorItem9 = {
+        text: colorState.text.EMPTY,
+        color: colorState.class.EMPTY
+    };
+    @observable colorItem10 = {
+        text: colorState.text.EMPTY,
+        color: colorState.class.EMPTY
+    };
+    @observable colorItem11 = {
+        text: colorState.text.EMPTY,
+        color: colorState.class.EMPTY
+    };
+    @observable colorItem12 = {
+        text: colorState.text.EMPTY,
+        color: colorState.class.EMPTY
+    };
+    @observable colorItem13 = {
+        text: colorState.text.EMPTY,
+        color: colorState.class.EMPTY
+    };
+    @observable colorItem14 = {
+        text: colorState.text.EMPTY,
+        color: colorState.class.EMPTY
+    };
+    @observable colorItem15 = {
+        text: colorState.text.EMPTY,
+        color: colorState.class.EMPTY
+    };
+    @observable colorItem16 = {
+        text: colorState.text.EMPTY,
+        color: colorState.class.EMPTY
+    };
+    @observable colorItem17 = {
+        text: colorState.text.EMPTY,
+        color: colorState.class.EMPTY
+    };
+    @observable colorItem18 = {
+        text: colorState.text.EMPTY,
+        color: colorState.class.EMPTY
+    };
+    @observable colorItem19 = {
+        text: colorState.text.EMPTY,
+        color: colorState.class.EMPTY
+    };
+    @observable colorItem20 = {
+        text: colorState.text.EMPTY,
+        color: colorState.class.EMPTY
+    };
+
+    @observable controlButton = {
+        text: 'Start',
+        isStart: true
+    };
 }
 
 const colorStore = new ColorStore();
