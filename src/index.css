@@ -46,10 +46,17 @@
     transition: 500ms ease-in-out;
     background-color: rgba(0, 0, 0, 0.05);
     box-shadow: inset 3px 3px 10px 5px lightyellow;
+    color: darkslateblue;
+
 }
 
 .multipleWaiting {
-
+    position: relative;
+    transition: 500ms ease-in-out;
+    background-color: lightcyan;
+    box-shadow: inset 2px 2px 10px 5px ghostwhite;
+    border: 1px solid ghostwhite;
+    color: darkslateblue;
 }
 
 .received {
@@ -81,8 +88,18 @@
     color: lightyellow;
 }
 
+.multipleRejected {
+    position: relative;
+    transition: 500ms ease-in-out;
+    background-color: darkred;
+    box-shadow: inset 2px 2px 10px 5px orangered;
+    border: 1px solid orangered;
+    color: lightgoldenrodyellow;
+}
+
 .received::before, .multipleReceived::before,
-.waiting::before, .rejected::before {
+.waiting::before, .multipleWaiting::before,
+.rejected::before, multipleRejected::before {
     position: absolute;
     content: '';
     width: 100%;

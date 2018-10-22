@@ -9,6 +9,8 @@ import {observer} from "mobx-react";
 const NUM_COLOR_ITEMS = 20;
 const RESPONSE_TIME_MIN = 1; // in seconds
 const RESPONSE_TIME_MAX = 10; // in seconds
+const SIG_DIGS = 5; // significant digits
+const MS_PER_S = 1000;
 
 const colorState = {
     state: {
@@ -17,15 +19,19 @@ const colorState = {
         MULTIPLE_WAITING: 2,
         RECEIVED: 3,
         MULTIPLE_RECEIVED: 4,
-        REJECTED: 5
+        REJECTED: 5,
+        MULTIPLE_REJECTED: 6,
+        MIXED: 7
     },
     text: {
         EMPTY: '',
         WAITING: 'waiting',
-        MULTIPLE_WAITING: 'more than one waiting',
+        MULTIPLE_WAITING: 'waiting++',
         RECEIVED: 'received',
         MULTIPLE_RECEIVED: 'received++',
-        REJECTED: 'rejected'
+        REJECTED: 'rejected',
+        MULTIPLE_REJECTED: 'rejected++',
+        MIXED: 'received / rejected'
     },
     class : {
         EMPTY: 'empty',
@@ -33,11 +39,16 @@ const colorState = {
         MULTIPLE_WAITING: 'multipleWaiting',
         RECEIVED: 'received',
         MULTIPLE_RECEIVED: 'multipleReceived',
-        REJECTED: 'rejected'
+        REJECTED: 'rejected',
+        MULTIPLE_REJECTED: 'multipleRejected',
+        MIXED: 'mixed'
     }
-}
+};
 
-
+// used to halt the app (including async calls)
+let bAppStopped = false;
+// track timing
+let timer;
 
 class ColorContainer extends React.Component {
 
@@ -90,10 +101,10 @@ class ColorItem extends React.Component {
     render() {
         return(
             <div
-                className={'colorItem' + ' ' + colorStore[('colorItem' + this.state.itemNumber)].class}
+                className={`colorItem ${colorStore[(`colorItem${this.state.itemNumber}`)].class}`}
                 id={'color_item_' + this.state.itemNumber}
             >
-                {colorStore[('colorItem' + this.state.itemNumber)].text}
+                {colorStore[(`colorItem${this.state.itemNumber}`)].text}
             </div>
         );
     }
@@ -106,6 +117,14 @@ class Control extends React.Component {
 
 
         if(colorStore.controlButton.isStart) {
+            bAppStopped = false; // starting the app, so allow responses to be applied
+            timer = new Date() / MS_PER_S;
+            console.log("%cAwaiting colors app starting...", "color: green");
+            setTimeout(() => {
+                if(!bAppStopped) {
+                    console.log("%cAwaiting colors app stopping...", "color: orange");
+                }
+            }, (RESPONSE_TIME_MAX * MS_PER_S)); // will stop slightly before the last possible responses because of program execution time
             for(let i = 0; i < 30; i++) {
                 getColors().catch(err => {
                     console.error(err.error);
@@ -117,6 +136,7 @@ class Control extends React.Component {
             colorStore.controlButton.text = 'Clear';
         } else {
             applyEmptyAll();
+            bAppStopped = true; // stop the app so we don't keep applying responses
             // set to button to "Start" for next click because we just cleared
             colorStore.controlButton.text = 'Start';
         }
@@ -155,38 +175,59 @@ function applyEmptyAll() {
     }
 }
 
+// TODO refactor apply success response / failure response into one function?
 function applyResponse(responseNumber) {
-    console.log("response num: " + responseNumber);
-    if(colorStore[('colorItem' + responseNumber)].state === colorState.state.RECEIVED) {
-        colorStore[('colorItem' + responseNumber)].text = colorState.text.MULTIPLE_RECEIVED;
-        colorStore[('colorItem' + responseNumber)].state = colorState.state.MULTIPLE_RECEIVED;
-        colorStore[('colorItem' + responseNumber)].class = colorState.class.MULTIPLE_RECEIVED;
-    } else if (colorStore[('colorItem' + responseNumber)].state === colorState.state.MULTIPLE_RECEIVED) {
-
+    if(bAppStopped) return; // don't apply success responses if app is stopped
+    if(colorStore[(`colorItem${responseNumber}`)].state === colorState.state.RECEIVED) {
+        console.log(`multi-response num: ${responseNumber} at time since start: ${(new Date()/MS_PER_S - timer).toFixed(SIG_DIGS)} secs`);
+        colorStore[(`colorItem${responseNumber}`)].text = colorState.text.MULTIPLE_RECEIVED;
+        colorStore[(`colorItem${responseNumber}`)].state = colorState.state.MULTIPLE_RECEIVED;
+        colorStore[(`colorItem${responseNumber}`)].class = colorState.class.MULTIPLE_RECEIVED;
+    } else if (colorStore[(`colorItem${responseNumber}`)].state === colorState.state.MULTIPLE_RECEIVED) {
+        // multiple received getting another success response stays as multiple received for now
     } else {
-        colorStore[('colorItem' + responseNumber)].text = colorState.text.RECEIVED;
-        colorStore[('colorItem' + responseNumber)].state = colorState.state.RECEIVED;
-        colorStore[('colorItem' + responseNumber)].class = colorState.class.RECEIVED;
+        console.log(`response num: ${responseNumber} at time since start: ${(new Date()/MS_PER_S - timer).toFixed(SIG_DIGS)} secs`);
+        colorStore[(`colorItem${responseNumber}`)].text = colorState.text.RECEIVED;
+        colorStore[(`colorItem${responseNumber}`)].state = colorState.state.RECEIVED;
+        colorStore[(`colorItem${responseNumber}`)].class = colorState.class.RECEIVED;
     }
 }
 
 function applyWaiting(waitingNumber) {
-    console.log("waiting num: " + waitingNumber);
+    console.log(`waiting num: ${waitingNumber} at time since start: ${(new Date()/MS_PER_S - timer).toFixed(SIG_DIGS)} secs`);
     // TODO multiple waiting
-    colorStore[('colorItem' + waitingNumber)].text = colorState.text.WAITING;
-    colorStore[('colorItem' + waitingNumber)].state = colorState.state.WAITING;
-    colorStore[('colorItem' + waitingNumber)].class = colorState.class.WAITING;
+    if(colorStore[(`colorItem${waitingNumber}`)].state === colorState.state.WAITING) {
+        colorStore[(`colorItem${waitingNumber}`)].text = colorState.text.MULTIPLE_WAITING;
+        colorStore[(`colorItem${waitingNumber}`)].state = colorState.state.MULTIPLE_WAITING;
+        colorStore[(`colorItem${waitingNumber}`)].class = colorState.class.MULTIPLE_WAITING;
+    } else if (colorStore[(`colorItem${waitingNumber}`)].state === colorState.state.MULTIPLE_WAITING) {
+        // multiple waiting getting another waiting stays as multiple waiting for now
+    } else {
+        colorStore[(`colorItem${waitingNumber}`)].text = colorState.text.WAITING;
+        colorStore[(`colorItem${waitingNumber}`)].state = colorState.state.WAITING;
+        colorStore[(`colorItem${waitingNumber}`)].class = colorState.class.WAITING;
+    }
 }
 
 function applyReject(rejectNumber) {
-    console.log("reject num: " + rejectNumber);
-    colorStore[('colorItem' + rejectNumber)].text = colorState.text.REJECTED;
-    colorStore[('colorItem' + rejectNumber)].state = colorState.state.REJECTED;
-    colorStore[('colorItem' + rejectNumber)].class = colorState.class.REJECTED;
+    if(bAppStopped) return; // don't apply rejection responses if app is stopped
+    if(colorStore[(`colorItem${rejectNumber}`)].state === colorState.state.REJECTED) {
+        console.log(`multi-reject num: ${rejectNumber} at time since start: ${(new Date()/MS_PER_S - timer).toFixed(SIG_DIGS)} secs`);
+        colorStore[(`colorItem${rejectNumber}`)].text = colorState.text.MULTIPLE_REJECTED;
+        colorStore[(`colorItem${rejectNumber}`)].state = colorState.state.MULTIPLE_REJECTED;
+        colorStore[(`colorItem${rejectNumber}`)].class = colorState.class.MULTIPLE_REJECTED;
+    } else if (colorStore[('colorItem' + rejectNumber)].state === colorState.state.MULTIPLE_REJECTED) {
+        // multiple rejected receiving another reject response stays as multiple rejected for now
+    } else {
+        console.log(`reject num: ${rejectNumber} at time since start: ${(new Date()/MS_PER_S - timer).toFixed(SIG_DIGS)} secs`);
+        colorStore[(`colorItem${rejectNumber}`)].text = colorState.text.REJECTED;
+        colorStore[(`colorItem${rejectNumber}`)].state = colorState.state.REJECTED;
+        colorStore[(`colorItem${rejectNumber}`)].class = colorState.class.REJECTED;
+    }
 }
 
 async function colorEndPoint(colorNumber) {
-    let responseTime = (Math.random() * RESPONSE_TIME_MAX + RESPONSE_TIME_MIN) * 1000; // between min and max seconds, inclusive (in milliseconds)
+    let responseTime = (Math.random() * RESPONSE_TIME_MAX + RESPONSE_TIME_MIN) * MS_PER_S; // between min and max seconds, inclusive (in milliseconds)
     let color = new Promise((resolve, reject) => {
         setTimeout(() => {
             let rollForError = function (errorRate) {
@@ -198,9 +239,9 @@ async function colorEndPoint(colorNumber) {
                 }
                 return bIsError;
             };
-            const ERROR_INCIDENCE = 10; // percent of color items
+            const ERROR_INCIDENCE = 50; // percent of color items
             if(rollForError(ERROR_INCIDENCE) > 0) {
-                reject({num: colorNumber, error: 'oops...failed for ' + colorNumber});
+                reject({num: colorNumber, error: `oops...failed for ${colorNumber} at time since start: ${(new Date()/MS_PER_S - timer).toFixed(SIG_DIGS)} secs`});
             } else {
                 resolve(colorNumber);
             }
